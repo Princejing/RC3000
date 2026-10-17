@@ -1,0 +1,29 @@
+
+
+# ---------------------------------------------------------------------------
+# H3C Magic RT3000 (RC3000) / RW3000
+#
+# 追加到 target/linux/qualcommax/image/ipq50xx.mk 末尾
+#
+# 硬件依据（硬件信息汇总.md）：
+#   §2  NAND 128 MiB / PEB 128 KiB / page 2048 B / 8-bit
+#   §5  内存 256 MiB，Q6 区共 58 MiB
+#   §6  rootfs 分区 40 MB（0x3100000）
+#   §7  FIT 默认配置必须显式设为 config@mp03.3-m1
+# ---------------------------------------------------------------------------
+define Device/h3c_rc3000
+	$(call Device/FitImageLzma)
+	$(call Device/UbiFit)
+	DEVICE_VENDOR := H3C
+	DEVICE_MODEL := Magic RT3000
+	DEVICE_DTS_CONFIG := config@mp03.3-m1
+	SOC := ipq5018
+	BLOCKSIZE := 128k
+	PAGESIZE := 2048
+	IMAGE_SIZE := 59392k
+	NAND_SIZE := 128m
+	DEVICE_PACKAGES := \
+		ath11k-firmware-ipq5018-qcn6122 \
+		ipq-wifi-cmcc_mr3000d-ci
+endef
+TARGET_DEVICES += h3c_rc3000

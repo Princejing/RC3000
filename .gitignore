@@ -1,0 +1,10 @@
+*.tar.zst
+*.bin
+*.itb
+*.ubi
+*.img
+*.log
+.config
+build_dir/
+staging_dir/
+bin/

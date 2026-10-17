@@ -1,0 +1,56 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: RC3000 port <rc3000@localhost>
+Date: Sat, 17 Oct 2026 23:30:00 +0800
+Subject: [PATCH] arm64: dts: qcom: ipq5018: add blsp0_uart0 node
+
+The IPQ5018 SoC has two BLSP UART controllers. Upstream ipq5018.dtsi
+only declares blsp1_uart1, but the H3C Magic RT3000 (RC3000) routes its
+serial console to blsp0_uart0 on GPIO 20 (TX) / GPIO 21 (RX).
+
+Add the missing node so the console works.
+
+NOTE: the base address and interrupt number below are PLACEHOLDERS.
+They must be read from the vendor DTB before this patch can be used.
+See README.md section "Known limitations".
+
+---
+ arch/arm64/boot/dts/qcom/ipq5018.dtsi | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+--- a/arch/arm64/boot/dts/qcom/ipq5018.dtsi
++++ b/arch/arm64/boot/dts/qcom/ipq5018.dtsi
+@@ -162,6 +162,16 @@
+ 			function = "blsp1_uart1";
+ 			drive-strength = <8>;
+ 			bias-pull-down;
+ 		};
++
++		uart0_pins: uart0-state {
++			pins = "gpio20", "gpio21";
++			function = "blsp0_uart0";
++			drive-strength = <8>;
++			bias-disable;
++		};
+ 	};
+
+ 	gcc: clock-controller@1800000 {
+@@ -217,6 +227,16 @@
+ 			status = "disabled";
+ 		};
+
++		blsp0_uart0: serial@78b0000 {
++			compatible = "qcom,msm-uartdm-v1.4", "qcom,msm-uartdm";
++			reg = <0x078b0000 0x200>;
++			interrupts = <GIC_SPI 108 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&gcc GCC_BLSP1_UART2_APPS_CLK>,
++				 <&gcc GCC_BLSP1_AHB_CLK>;
++			clock-names = "core", "iface";
++			status = "disabled";
++		};
++
+ 		blsp1_spi1: spi@78b5000 {
+ 			compatible = "qcom,spi-qup-v2.2.1";
+ 			#address-cells = <1>;
+--
+2.39.5
+

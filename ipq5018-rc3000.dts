@@ -1,0 +1,382 @@
+// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
+/*
+ * H3C Magic RT3000 (RC3000) device tree source
+ *
+ * Derived from ipq5018-mr3000d-ci.dts and ipq5018-gl-b3000.dts in
+ * OpenWrt 25.12, adapted to the RC3000 / RW3000 hardware.
+ *
+ * Hardware facts come from 硬件信息汇总.md (RC3000):
+ *   - SoC       : IPQ5018, 256 MiB DDR3
+ *   - NAND      : 128 MiB SPI NAND, 128 KiB PEB, 2048 B page, 8-bit
+ *   - WAN       : gmac0 -> internal GE PHY (mdio0 addr 7) -> dedicated port
+ *   - LAN       : gmac1 -> SGMII -> QCA8337 -> 3 copper ports
+ *   - Switch    : QCA8337, MDIO 0x11 (TBC), reset GPIO 39 active low
+ *   - 2.4 GHz   : IPQ5018 integrated, user PD 1
+ *   - 5 GHz     : QCN6122 on PCIe0, user PD 2, fw-memory-mode 2
+ *   - UART      : blsp0_uart0, GPIO 20 (TX) / 21 (RX), 115200 8N1
+ *   - LED       : GPIO 46 (status), GPIO 38 (WPS key)
+ */
+
+/dts-v1/;
+
+#include "ipq5018.dtsi"
+#include "ipq5018-ess.dtsi"
+#include "ipq5018-qcn6122.dtsi"
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/leds/common.h>
+
+/ {
+	model = "H3C Magic RT3000";
+	compatible = "h3c,rc3000", "qcom,ipq5018";
+
+	aliases {
+		/* 硬件信息汇总 §9: 串口是 blsp0_uart0。
+		 * 注意：上游 ipq5018.dtsi 只有 blsp1_uart1，没有 blsp0_uart0。
+		 * 如果你的源码树打了 9999 补丁加了 blsp0_uart0，把下面改成 &blsp0_uart0；
+		 * 否则串口在 initramfs 阶段不可用（先按 blsp1_uart1 编，不影响网络）。 */
+		serial0 = &blsp1_uart1;
+
+		led-boot = &led_status;
+		led-failsafe = &led_status;
+		led-running = &led_status;
+		led-upgrade = &led_status;
+	};
+
+	chosen {
+		bootargs-append = " root=/dev/ubiblock0_1 swiotlb=1 coherent_pool=2M";
+		stdout-path = "serial0:115200n8";
+	};
+
+	keys {
+		compatible = "gpio-keys";
+		pinctrl-0 = <&button_pins>;
+		pinctrl-names = "default";
+
+		/* 硬件信息汇总 §8: GPIO 38 = WPS 键，低有效 */
+		button-wps {
+			label = "wps";
+			gpios = <&tlmm 38 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_WPS_BUTTON>;
+		};
+	};
+
+	leds {
+		compatible = "gpio-leds";
+		pinctrl-0 = <&led_pins>;
+		pinctrl-names = "default";
+
+		/* 硬件信息汇总 §8: GPIO 46 = 状态 LED，高有效 */
+		led_status: led-0 {
+			gpios = <&tlmm 46 GPIO_ACTIVE_HIGH>;
+			color = <LED_COLOR_ID_GREEN>;
+			function = LED_FUNCTION_STATUS;
+		};
+	};
+};
+
+&sleep_clk {
+	clock-frequency = <32000>;
+};
+
+&xo_board_clk {
+	clock-div = <4>;
+	clock-mult = <1>;
+};
+
+/* 临时串口节点，见 aliases 处的说明 */
+&blsp1_uart1 {
+	pinctrl-0 = <&serial_0_pins>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+
+&crypto {
+	status = "okay";
+};
+
+&cryptobam {
+	status = "okay";
+};
+
+&prng {
+	status = "okay";
+};
+
+&qfprom {
+	status = "okay";
+};
+
+&qpic_bam {
+	status = "okay";
+};
+
+&qpic_nand {
+	pinctrl-0 = <&qpic_pins>;
+	pinctrl-names = "default";
+	status = "okay";
+
+	/* 硬件信息汇总 §2: 128 MiB SPI NAND, 8-bit 位宽。
+	 * ECC strength/step 不写：上游 ipq5018.dtsi 与
+	 * patches-6.12/0401-spi-spi-qpic-snand-default-to-4-bit-ECC.patch
+	 * 已经默认 4/512，与硬件一致。 */
+	nand@0 {
+		compatible = "spi-nand";
+		reg = <0>;
+		nand-ecc-engine = <&qpic_nand>;
+		nand-bus-width = <8>;
+
+		partitions {
+			compatible = "qcom,smem-part";
+
+			partition-art {
+				label = "0:art";
+				read-only;
+			};
+			/* 硬件信息汇总 §13.2: ART 里没有 MAC，绝对不能写
+			 * nvmem-layout / nvmem-cells，否则拿到垃圾地址。 */
+		};
+	};
+};
+
+/* ================= 网络 ================= */
+
+&switch {
+	status = "okay";
+	switch_mac_mode = <MAC_MODE_SGMII_CHANNEL0>;
+
+	qcom,port_phyinfo {
+		/* 硬件信息汇总 §3.1: WAN = MAC0 -> 片内 GE PHY。
+		 * GE PHY 在 mdio0 上固定地址 7。 */
+		port@0 {
+			port_id = <1>;
+			mdiobus = <&mdio0>;
+			phy_address = <7>;
+		};
+
+		/* 硬件信息汇总 §3.1: LAN = MAC1 -> SGMII -> QCA8337 */
+		port@1 {
+			port_id = <2>;
+			forced-speed = <1000>;
+			forced-duplex = <1>;
+		};
+	};
+};
+
+/* 硬件信息汇总 §3.1 + §13.1:
+ * WAN 是 gmac0 上片内 GE PHY 的独立 netdev，不在交换机上。
+ * 因此不给它 phy-handle 指向交换机 PHY，也不写 label="wan"
+ * 以外的 DSA 属性。 */
+&dp1 {
+	status = "okay";
+	label = "wan";
+	/* 不写 nvmem-cells：硬件信息汇总 §13.2 */
+};
+
+/* LAN 侧：MAC1 -> SGMII -> QCA8337 CPU 口 */
+&dp2 {
+	status = "okay";
+	fixed-link {
+		speed = <1000>;
+		full-duplex;
+	};
+	/* 不写 nvmem-cells：硬件信息汇总 §13.2 */
+};
+
+&mdio0 {
+	status = "okay";
+};
+
+&mdio1 {
+	status = "okay";
+	pinctrl-0 = <&mdio1_pins>, <&switch_reset_pins>;
+	pinctrl-names = "default";
+
+	/* 硬件信息汇总 §3.2: QCA8337 复位 = GPIO 39，低有效。
+	 * （PZ-L8 用 26，那是错的，见 §13.5） */
+	reset-gpios = <&tlmm 39 GPIO_ACTIVE_LOW>;
+
+	/* 硬件信息汇总 §3.2: LAN PHY 地址 = mdio1 的 0 / 1 / 2 */
+	qca8337_0: ethernet-phy@0 {
+		reg = <0>;
+	};
+
+	qca8337_1: ethernet-phy@1 {
+		reg = <1>;
+	};
+
+	qca8337_2: ethernet-phy@2 {
+		reg = <2>;
+	};
+
+	/* 硬件信息汇总 §3.3: OpenWrt 全树 IPQ5018+QCA8337 都用 0x11。
+	 * 厂家 CAF 树写 0x1c。刷前用 U-Boot 确认：
+	 *     ipq5018 mdio read 1 17 0
+	 *     ipq5018 mdio read 1 28 0
+	 * 哪个返回 0x004933xx 就是它。若是 0x1c，把这里的 @17/reg 和
+	 * 上面 ethernet-switch@17 一起改成 @28 / <28>。 */
+	switch0: ethernet-switch@17 {
+		compatible = "qca,qca8337";
+		reg = <17>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			/* 硬件信息汇总 §3.2: CPU = port6 */
+			switch0cpu: port@6 {
+				reg = <6>;
+				label = "cpu";
+				phy-mode = "sgmii";
+				ethernet = <&dp2>;
+				qca,sgmii-enable-pll;
+
+				fixed-link {
+					speed = <1000>;
+					full-duplex;
+				};
+			};
+
+			/* 硬件信息汇总 §3.2: 面板口 = port2/3/4，
+			 * 对应 mdio1 的 PHY 0/1/2 */
+			port@2 {
+				reg = <2>;
+				label = "lan1";
+				phy-handle = <&qca8337_0>;
+			};
+
+			port@3 {
+				reg = <3>;
+				label = "lan2";
+				phy-handle = <&qca8337_1>;
+			};
+
+			port@4 {
+				reg = <4>;
+				label = "lan3";
+				phy-handle = <&qca8337_2>;
+			};
+		};
+	};
+};
+
+&tlmm {
+	button_pins: button-state {
+		button-pins {
+			/* 硬件信息汇总 §8: GPIO 38 = WPS */
+			pins = "gpio38";
+			function = "gpio";
+			drive-strength = <8>;
+			bias-pull-up;
+		};
+	};
+
+	led_pins: led-state {
+		/* 硬件信息汇总 §8: GPIO 46 = 状态 LED */
+		pins = "gpio46";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-pull-down;
+	};
+
+	mdio1_pins: mdio-state {
+		mdc-pins {
+			/* 硬件信息汇总 §8: GPIO 36/37 = MDIO1 mdc/mdio */
+			pins = "gpio36";
+			function = "mdc";
+			drive-strength = <8>;
+			bias-pull-up;
+		};
+
+		mdio-pins {
+			pins = "gpio37";
+			function = "mdio";
+			drive-strength = <8>;
+			bias-pull-up;
+		};
+	};
+
+	qpic_pins: qpic-state {
+		/* 硬件信息汇总 §8: GPIO 4-9 = QPIC NAND */
+		clock-pins {
+			pins = "gpio9";
+			function = "qspi_clk";
+			drive-strength = <8>;
+			bias-disable;
+		};
+
+		cs-pins {
+			pins = "gpio8";
+			function = "qspi_cs";
+			drive-strength = <8>;
+			bias-disable;
+		};
+
+		data-pins {
+			pins = "gpio4", "gpio5", "gpio6", "gpio7";
+			function = "qspi_data";
+			drive-strength = <8>;
+			bias-disable;
+		};
+	};
+
+	switch_reset_pins: switch-reset-state {
+		pins = "gpio39";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-pull-down;
+	};
+
+	/* 硬件信息汇总 §9: 串口 = GPIO 20 (TX) / 21 (RX)。
+	 * function 写 blsp0_uart0。若内核没有 blsp0_uart0 节点，
+	 * 这组 pin 定义不会被引用，无害。 */
+	serial_0_pins: uart0-state {
+		pins = "gpio20", "gpio21";
+		function = "blsp0_uart0";
+		drive-strength = <8>;
+		bias-disable;
+	};
+};
+
+/* ================= 无线 ================= */
+
+&q6v5_wcss {
+	status = "okay";
+
+	/* 硬件信息汇总 §4 + §13.7: 两块射频共用 &q6v5_wcss，
+	 * 靠 boot-args 里的 UPD ID 2 把 5G 分流到 user PD 2。 */
+	boot-args = <
+		/*       type:	*/	0x1	/* PCIE0	*/
+		/*     length:	*/	4
+		/*     UPD ID:	*/	2
+		/* reset GPIO:	*/	15
+		/*   reserved:	*/	0 0>;
+};
+
+/* 2.4 GHz：IPQ5018 集成，user PD 1 */
+&wifi {
+	status = "okay";
+
+	qcom,rproc = <&q6_wcss_pd1>;
+	/* 硬件信息汇总 §4: fw-memory-mode 实测为 2 */
+	qcom,ath11k-fw-memory-mode = <2>;
+	/* 硬件信息汇总 §5: q6_region_ipq5018 = 0x4c400000 */
+	qcom,bdf-addr = <0x4c400000>;
+};
+
+/* 5 GHz：QCN6122，PCIe0，user PD 2 */
+&wifi1 {
+	status = "okay";
+
+	qcom,rproc = <&q6_wcss_pd2>;
+	qcom,userpd-subsys-name = "q6v5_wcss_userpd2";
+	/* 硬件信息汇总 §4: fw-memory-mode 实测为 2 */
+	qcom,ath11k-fw-memory-mode = <2>;
+	/* 硬件信息汇总 §5: q6_region_qcn6122_1 = 0x4d200000 */
+	qcom,bdf-addr = <0x4d200000>;
+	/* 硬件信息汇总 §5: m3_dump_qcn6122_1 = 0x4df00000 */
+	qcom,m3-dump-addr = <0x4df00000>;
+};
